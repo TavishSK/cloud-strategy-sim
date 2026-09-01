@@ -1,0 +1,6 @@
+{
+  "name": "Cloud Strategy Simulator",
+  "description": "Enterprise cloud auto-scaling simulation and strategy evaluation platform for evaluating CPU, Trend, and Latency decision models under stress workloads.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
