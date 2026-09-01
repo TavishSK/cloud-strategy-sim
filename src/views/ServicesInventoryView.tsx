@@ -220,10 +220,17 @@ export const ServicesInventoryView: React.FC<ServicesInventoryViewProps> = ({
 
                   {/* Strategy */}
                   <td className="px-5 py-3.5">
-                    <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-[#070A0F] border border-[#1F2937] text-xs font-mono font-medium text-[#adc6ff]">
-                      {getStrategyIcon(svc.strategy)}
-                      <span>{svc.strategy}</span>
-                    </span>
+                    <div className="flex flex-wrap items-center gap-1.5 max-w-[200px]">
+                      {(svc.strategies && svc.strategies.length > 0 ? svc.strategies : [svc.strategy]).map(st => (
+                        <span
+                          key={st}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#070A0F] border border-[#1F2937] text-[11px] font-mono font-medium text-[#adc6ff]"
+                        >
+                          {getStrategyIcon(st)}
+                          <span>{st}</span>
+                        </span>
+                      ))}
+                    </div>
                   </td>
 
                   {/* Last Simulated */}

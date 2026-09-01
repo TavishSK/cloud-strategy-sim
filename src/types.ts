@@ -24,6 +24,7 @@ export interface Microservice {
   cpuUtil: number; // percentage e.g. 63
   latency: number; // in ms e.g. 12
   strategy: ScalingStrategy;
+  strategies?: ScalingStrategy[];
   workloadPattern: TrafficPattern;
   cpuBaseline: number; // mCores e.g. 250
   responseBaseline: number; // ms e.g. 120
@@ -52,6 +53,8 @@ export interface TelemetryPoint {
   latency: number; // ms
   replicas: number;
   workloadRate: number; // req/s
+  predictedLoad?: number; // 0 - 100 (% forecasted demand)
+  trendGradient?: number; // % derivative rate of change
   costRate?: number; // $/hr
 }
 
@@ -73,6 +76,7 @@ export interface SimulationSession {
   maxReplicas: number;
   workloadProfile: string;
   strategy: ScalingStrategy;
+  strategies?: ScalingStrategy[];
   telemetry: TelemetryPoint[];
   events: ScalingEvent[];
   stats: {
@@ -164,6 +168,7 @@ export interface AnalyticsData {
     count: number;
     isPeak?: boolean;
   }[];
+  confidencePercent?: number;
   strategyComparisons: {
     strategy: string;
     name: string;

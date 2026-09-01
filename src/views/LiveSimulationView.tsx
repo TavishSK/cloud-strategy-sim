@@ -155,7 +155,7 @@ export const LiveSimulationView: React.FC<LiveSimulationViewProps> = ({
               <span>•</span>
               <span>Region: <strong className="text-white">{simulation.region}</strong></span>
               <span>•</span>
-              <span>Strategy: <strong className="text-[#4edea3]">{simulation.strategy}</strong></span>
+              <span>Strategy: <strong className="text-[#4edea3]">{simulation.strategies && simulation.strategies.length > 0 ? simulation.strategies.join(' + ') : simulation.strategy}</strong></span>
               <span>•</span>
               <span>Profile: <strong className="text-[#ffb95f]">{simulation.workloadProfile}</strong></span>
             </div>
@@ -287,9 +287,9 @@ export const LiveSimulationView: React.FC<LiveSimulationViewProps> = ({
         </div>
       </div>
 
-      {/* Dual Telemetry Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left: CPU Utilization Chart */}
+      {/* 3 Strategy Telemetry Charts (Stacked Vertically One Below Another) */}
+      <div className="space-y-5">
+        {/* 1. CPU Target Tracking Chart */}
         <div className="card-level-1 p-5 rounded-xl border border-[#1F2937] space-y-3">
           <div className="flex items-center justify-between pb-2 border-b border-[#1F2937]">
             <div className="flex items-center gap-2">
@@ -301,7 +301,7 @@ export const LiveSimulationView: React.FC<LiveSimulationViewProps> = ({
           <TelemetryChart
             data={simulation.telemetry}
             metricType="cpu"
-            height={160}
+            height={170}
             color="#4d8eff"
             unit="%"
             thresholdLine={75}
@@ -309,7 +309,27 @@ export const LiveSimulationView: React.FC<LiveSimulationViewProps> = ({
           />
         </div>
 
-        {/* Right: Response Latency Chart */}
+        {/* 2. TREND Predictive Scaling Forecast Chart */}
+        <div className="card-level-1 p-5 rounded-xl border border-[#1F2937] space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-[#1F2937]">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-[#b69df8]" />
+              <h3 className="text-xs font-semibold text-white">Predictive Forecast & Load Trend (%)</h3>
+            </div>
+            <span className="text-[11px] font-mono text-[#b69df8]">Horizon: +15s</span>
+          </div>
+          <TelemetryChart
+            data={simulation.telemetry}
+            metricType="predictive"
+            height={170}
+            color="#b69df8"
+            unit="%"
+            thresholdLine={80}
+            thresholdLabel="Pre-Provision Horizon (80%)"
+          />
+        </div>
+
+        {/* 3. Response Latency SLA Chart */}
         <div className="card-level-1 p-5 rounded-xl border border-[#1F2937] space-y-3">
           <div className="flex items-center justify-between pb-2 border-b border-[#1F2937]">
             <div className="flex items-center gap-2">
@@ -321,7 +341,7 @@ export const LiveSimulationView: React.FC<LiveSimulationViewProps> = ({
           <TelemetryChart
             data={simulation.telemetry}
             metricType="latency"
-            height={160}
+            height={170}
             color="#4edea3"
             unit="ms"
             thresholdLine={150}

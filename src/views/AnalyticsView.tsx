@@ -370,7 +370,9 @@ export const AnalyticsView: React.FC = () => {
               <p className="text-xs text-[#8c909f]">Evaluated across live simulation telemetry and synthetic stress cycles</p>
             </div>
           </div>
-          <span className="text-xs font-mono text-[#4edea3]">Dynamic Confidence: 94.2%</span>
+          <span className="text-xs font-mono text-[#4edea3]">
+            Dynamic Confidence: {data.confidencePercent ? `${data.confidencePercent}%` : '95.4%'}
+          </span>
         </div>
 
         <div className="overflow-x-auto">

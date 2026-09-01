@@ -14,8 +14,7 @@ import type {
   ScalingStrategy
 } from './src/types.ts';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname = process.cwd();
 
 const app = express();
 const PORT = 3000;
@@ -39,6 +38,7 @@ const initialServices: Microservice[] = [
     cpuUtil: 63,
     latency: 12,
     strategy: 'LATENCY',
+    strategies: ['LATENCY', 'CPU', 'TREND'],
     workloadPattern: 'spike',
     cpuBaseline: 250,
     responseBaseline: 15,
@@ -193,33 +193,81 @@ let environmentSettings = {
 };
 
 // Initial Telemetry generator
-function generateInitialTelemetry(points = 20, baseCpu = 60, baseLatency = 45, baseReps = 6): TelemetryPoint[] {
+function generateInitialTelemetry(
+  points = 20,
+  baseCpu = 60,
+  baseLatency = 45,
+  baseReps = 6,
+  workloadProfile = 'HIGH_BURST',
+  seed = Math.floor(Math.random() * 1000) + 1
+): TelemetryPoint[] {
   const result: TelemetryPoint[] = [];
   const now = Date.now();
+
   for (let i = points; i >= 0; i--) {
     const timestamp = now - i * 5000;
     const minutesAgo = Math.round((now - timestamp) / 60000);
     const timeLabel = minutesAgo === 0 ? 'Now' : `T-${minutesAgo}m`;
-    const cpuNoise = Math.sin(i * 0.4) * 15 + (Math.random() * 8 - 4);
-    const latencyNoise = Math.cos(i * 0.5) * 20 + (Math.random() * 10 - 5);
+
+    let cpuNoise = 0;
+    let latencyNoise = 0;
+    let workloadRate = 450;
+
+    if (workloadProfile.includes('PERIODIC') || workloadProfile.includes('Sine')) {
+      const angle = i * 0.45 + (seed % 10);
+      cpuNoise = Math.sin(angle) * 22 + (Math.random() * 4 - 2);
+      latencyNoise = Math.sin(angle) * (baseLatency * 0.35) + (Math.random() * 4 - 2);
+      workloadRate = Math.round(500 + Math.sin(angle) * 320);
+    } else if (workloadProfile.includes('SUDDEN_SPIKE') || workloadProfile.includes('Spike')) {
+      const isSpike = (i % 7) < 3;
+      cpuNoise = isSpike ? (26 + Math.random() * 10) : (-14 + Math.random() * 6);
+      latencyNoise = isSpike ? (baseLatency * 0.85 + Math.random() * 15) : (-baseLatency * 0.2);
+      workloadRate = isSpike ? 1150 + Math.round(Math.random() * 300) : 380 + Math.round(Math.random() * 100);
+    } else if (workloadProfile.includes('STABLE') || workloadProfile.includes('Baseline')) {
+      cpuNoise = Math.random() * 6 - 3;
+      latencyNoise = Math.random() * 4 - 2;
+      workloadRate = Math.round(400 + Math.random() * 50);
+    } else if (workloadProfile.includes('BLACK_FRIDAY')) {
+      const rampProgress = (points - i) / points;
+      cpuNoise = rampProgress * 35 + (Math.random() * 8 - 4);
+      latencyNoise = rampProgress * (baseLatency * 0.7) + (Math.random() * 6 - 3);
+      workloadRate = Math.round(300 + rampProgress * 950 + Math.random() * 100);
+    } else {
+      // HIGH_BURST
+      const angle = i * 0.5 + (seed % 20);
+      cpuNoise = Math.sin(angle) * 16 + (Math.random() * 12 - 6);
+      latencyNoise = Math.cos(angle * 0.8) * (baseLatency * 0.4) + (Math.random() * 10 - 5);
+      workloadRate = Math.round(550 + Math.sin(angle) * 250 + (Math.random() * 80 - 40));
+    }
+
+    const cpuVal = Math.max(8, Math.min(99, Math.round(baseCpu + cpuNoise)));
+    const latVal = Math.max(4, Math.round(baseLatency + latencyNoise));
+    const repVal = Math.max(1, baseReps + (cpuVal > 80 ? 1 : cpuVal < 35 ? -1 : 0));
+    const predictedLoad = Math.max(10, Math.min(99, Math.round(cpuVal * 1.05 + Math.sin(i * 0.6 + seed) * 8)));
+    const trendGradient = Number((Math.sin(i * 0.45 + seed) * 6 + (Math.random() * 2 - 1)).toFixed(1));
+
     result.push({
       timestamp,
       timeLabel,
-      cpu: Math.max(10, Math.min(99, Math.round(baseCpu + cpuNoise))),
-      latency: Math.max(5, Math.round(baseLatency + latencyNoise)),
-      replicas: baseReps,
-      workloadRate: 450 + Math.round(Math.sin(i * 0.3) * 200),
-      costRate: Number((baseReps * 2.45).toFixed(2))
+      cpu: cpuVal,
+      latency: latVal,
+      replicas: repVal,
+      workloadRate,
+      predictedLoad,
+      trendGradient,
+      costRate: Number((repVal * 2.45).toFixed(2))
     });
   }
   return result;
 }
 
+let activeSimulationSeed = Math.floor(Math.random() * 9000) + 1000;
+
 // ==========================================
 // ACTIVE SIMULATION SESSION
 // ==========================================
 let activeSimulation: SimulationSession = {
-  id: 'SIM-2024-001',
+  id: 'SIM-2026-108',
   serviceId: 'srv-order-svc',
   serviceName: 'Order Service',
   status: 'RUNNING',
@@ -234,7 +282,7 @@ let activeSimulation: SimulationSession = {
   maxReplicas: 8,
   workloadProfile: 'HIGH_BURST',
   strategy: 'CPU',
-  telemetry: generateInitialTelemetry(30, 78, 164, 6),
+  telemetry: generateInitialTelemetry(30, 78, 164, 6, 'HIGH_BURST', activeSimulationSeed),
   events: [
     {
       id: 'evt-4',
@@ -299,7 +347,7 @@ let experimentsDb: Experiment[] = [
     title: 'E-Commerce Black Friday Stress Test',
     serviceId: 'srv-payment-gw',
     serviceName: 'Payment-Gateway',
-    strategies: ['CPU', 'LATENCY'],
+    strategies: ['CPU', 'TREND', 'LATENCY'],
     workloadProfile: 'E-Commerce: Black Friday Spike',
     durationHours: 4,
     status: 'IN PROGRESS',
@@ -324,6 +372,21 @@ let experimentsDb: Experiment[] = [
         telemetry: generateInitialTelemetry(20, 68, 45, 24)
       },
       {
+        strategy: 'TREND',
+        status: 'Optimal',
+        activeReplicas: 19,
+        finalReplicas: 19,
+        avgLatency: 31,
+        avgCpu: 73.5,
+        peakLatency: 52,
+        scalingEventsCount: 4,
+        thrashingScore: 1,
+        resourceCostPerHour: 11.40,
+        efficiencyPercent: 95,
+        rating: 'EXCELLENT',
+        telemetry: generateInitialTelemetry(20, 74, 31, 19)
+      },
+      {
         strategy: 'LATENCY',
         status: 'Thrashing',
         activeReplicas: 42,
@@ -339,16 +402,16 @@ let experimentsDb: Experiment[] = [
         telemetry: generateInitialTelemetry(20, 35, 15, 42)
       }
     ],
-    bestStrategy: 'CPU',
-    confidencePercent: 91.4,
-    bestEfficiency: 88
+    bestStrategy: 'TREND',
+    confidencePercent: 94.8,
+    bestEfficiency: 95
   },
   {
     id: 'EXP-0892',
     title: 'Payment Gateway 10x Spike Benchmark',
     serviceId: 'srv-payment-gw',
     serviceName: 'Payment-Gateway',
-    strategies: ['CPU', 'LATENCY'],
+    strategies: ['CPU', 'TREND', 'LATENCY'],
     workloadProfile: 'Spike (10x)',
     durationHours: 2,
     status: 'COMPLETED',
@@ -371,6 +434,21 @@ let experimentsDb: Experiment[] = [
         efficiencyPercent: 98,
         rating: 'EXCELLENT',
         telemetry: generateInitialTelemetry(20, 71, 38, 12)
+      },
+      {
+        strategy: 'TREND',
+        status: 'Optimal',
+        activeReplicas: 11,
+        finalReplicas: 11,
+        avgLatency: 28,
+        avgCpu: 74.0,
+        peakLatency: 49,
+        scalingEventsCount: 3,
+        thrashingScore: 0,
+        resourceCostPerHour: 10.80,
+        efficiencyPercent: 96,
+        rating: 'EXCELLENT',
+        telemetry: generateInitialTelemetry(20, 74, 28, 11)
       },
       {
         strategy: 'LATENCY',
@@ -623,7 +701,12 @@ setInterval(() => {
       }
     }
 
-    // Add telemetry point
+    // Add telemetry point with trend and prediction
+    const recentPts = activeSimulation.telemetry.slice(-4);
+    const deltaCpu = recentPts.length >= 2 ? (clampedCpu - recentPts[0].cpu) : 0;
+    const trendGradient = Number(deltaCpu.toFixed(1));
+    const predictedLoad = Math.max(10, Math.min(99, Math.round(clampedCpu + deltaCpu * 0.75 + (Math.random() * 4 - 2))));
+
     const newPoint: TelemetryPoint = {
       timestamp: Date.now(),
       timeLabel: 'Now',
@@ -631,12 +714,24 @@ setInterval(() => {
       latency: clampedLatency,
       replicas: activeSimulation.currentReplicas,
       workloadRate: Math.round(demand),
+      predictedLoad,
+      trendGradient,
       costRate: Number((activeSimulation.currentReplicas * 2.45).toFixed(2))
     };
 
     activeSimulation.telemetry.push(newPoint);
     if (activeSimulation.telemetry.length > 40) {
       activeSimulation.telemetry.shift();
+    }
+
+    // Update ongoing simulation stats
+    const allPts = activeSimulation.telemetry;
+    if (allPts.length > 0) {
+      activeSimulation.stats.avgCpu = Math.round(allPts.reduce((acc, p) => acc + p.cpu, 0) / allPts.length);
+      activeSimulation.stats.avgLatency = Math.round(allPts.reduce((acc, p) => acc + p.latency, 0) / allPts.length);
+      activeSimulation.stats.peakCpu = Math.max(activeSimulation.stats.peakCpu, clampedCpu);
+      activeSimulation.stats.peakLatency = Math.max(activeSimulation.stats.peakLatency, clampedLatency);
+      activeSimulation.stats.costRatePerHour = Number((activeSimulation.currentReplicas * 2.45).toFixed(2));
     }
   }
 
@@ -762,12 +857,17 @@ app.post('/api/services', (req, res) => {
     workloadPattern = 'stable',
     cpuBaseline = 250,
     responseBaseline = 120,
-    strategy = 'CPU'
+    strategy = 'CPU',
+    strategies = ['CPU', 'TREND', 'LATENCY']
   } = req.body;
 
   if (!name || name.trim().length === 0) {
     return res.status(400).json({ error: 'Service name is required.' });
   }
+
+  const selectedStrategies: ScalingStrategy[] = Array.isArray(strategies) && strategies.length > 0
+    ? (strategies as ScalingStrategy[])
+    : [(strategy.toUpperCase() as ScalingStrategy) || 'CPU'];
 
   const minRep = Number(minReplicas) || 1;
   const initRep = Number(initialReplicas) || 2;
@@ -790,7 +890,8 @@ app.post('/api/services', (req, res) => {
     maxReplicas: maxRep,
     cpuUtil: 25,
     latency: Number(responseBaseline) || 45,
-    strategy: (strategy.toUpperCase() as ScalingStrategy) || 'CPU',
+    strategy: selectedStrategies[0] || 'CPU',
+    strategies: selectedStrategies,
     workloadPattern: workloadPattern || 'stable',
     cpuBaseline: Number(cpuBaseline) || 250,
     responseBaseline: Number(responseBaseline) || 120,
@@ -818,8 +919,29 @@ app.get('/api/simulations/live', (req, res) => {
 });
 
 app.post('/api/simulations/start', (req, res) => {
-  const { serviceId, strategy, workloadProfile, minReplicas, maxReplicas } = req.body;
+  const { serviceId, strategy, strategies, workloadProfile = 'HIGH_BURST', minReplicas, maxReplicas } = req.body;
   const svc = servicesDb.find(s => s.id === serviceId) || servicesDb[0];
+  const selectedStrategies: ScalingStrategy[] = Array.isArray(strategies) && strategies.length > 0
+    ? (strategies as ScalingStrategy[])
+    : [(strategy || svc.strategy || 'CPU') as ScalingStrategy];
+
+  activeSimulationSeed = Math.floor(Math.random() * 90000) + 10000;
+
+  const minR = Math.max(1, Number(minReplicas) || svc.minReplicas || 2);
+  const maxR = Math.max(minR, Number(maxReplicas) || svc.maxReplicas || 12);
+  const initReps = Math.max(minR, Math.min(maxR, svc.replicas || Math.round((minR + maxR) * 0.38)));
+
+  const baseCpu = svc.cpuBaseline ? Math.round(svc.cpuBaseline / 4.5) : (svc.cpuUtil || 55);
+  const startCpu = Math.max(22, Math.min(94, Math.round(baseCpu + (Math.random() * 12 - 6))));
+  const baseLat = svc.responseBaseline || svc.latency || 35;
+  const startLatency = Math.max(6, Math.round(baseLat + (Math.random() * 8 - 4)));
+
+  const initialPoints = generateInitialTelemetry(20, startCpu, startLatency, initReps, workloadProfile, activeSimulationSeed);
+
+  const avgCpu = Math.round(initialPoints.reduce((sum, p) => sum + p.cpu, 0) / initialPoints.length);
+  const avgLat = Math.round(initialPoints.reduce((sum, p) => sum + p.latency, 0) / initialPoints.length);
+  const peakCpu = Math.max(...initialPoints.map(p => p.cpu));
+  const peakLat = Math.max(...initialPoints.map(p => p.latency));
 
   activeSimulation = {
     id: `SIM-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 900) + 100).padStart(3, '0')}`,
@@ -830,14 +952,15 @@ app.post('/api/simulations/start', (req, res) => {
     cluster: svc.cluster,
     startTime: Date.now(),
     elapsedSeconds: 0,
-    currentCpu: svc.cpuUtil || 45,
-    currentLatency: svc.latency || 25,
-    currentReplicas: svc.replicas || 4,
-    minReplicas: minReplicas || svc.minReplicas || 2,
-    maxReplicas: maxReplicas || svc.maxReplicas || 12,
-    workloadProfile: workloadProfile || 'HIGH_BURST',
-    strategy: (strategy || svc.strategy || 'CPU') as ScalingStrategy,
-    telemetry: generateInitialTelemetry(15, svc.cpuUtil || 45, svc.latency || 25, svc.replicas || 4),
+    currentCpu: startCpu,
+    currentLatency: startLatency,
+    currentReplicas: initReps,
+    minReplicas: minR,
+    maxReplicas: maxR,
+    workloadProfile,
+    strategy: selectedStrategies[0],
+    strategies: selectedStrategies,
+    telemetry: initialPoints,
     events: [
       {
         id: `evt-${Date.now()}`,
@@ -846,23 +969,26 @@ app.post('/api/simulations/start', (req, res) => {
         type: 'SYSTEM_START',
         severity: 'info',
         message: 'Simulation Started',
-        detail: `Strategy: ${strategy || svc.strategy} under ${workloadProfile || 'HIGH_BURST'} workload.`,
+        detail: `Strategies: [${selectedStrategies.join(', ')}] • Profile: ${workloadProfile} • Bounds: ${minR}..${maxR} Pods`,
         previousReplicas: 0,
-        targetReplicas: svc.replicas || 4
+        targetReplicas: initReps
       }
     ],
     stats: {
-      avgCpu: svc.cpuUtil || 45,
-      avgLatency: svc.latency || 25,
-      peakCpu: svc.cpuUtil || 45,
-      peakLatency: svc.latency || 25,
+      avgCpu,
+      avgLatency: avgLat,
+      peakCpu,
+      peakLatency: peakLat,
       scalingEventsCount: 0,
-      costRatePerHour: Number(((svc.replicas || 4) * 2.45).toFixed(2))
+      costRatePerHour: Number((initReps * 2.45).toFixed(2))
     }
   };
 
   svc.status = 'SIMULATING';
   svc.lastSimulation = 'Now';
+  svc.replicas = initReps;
+  svc.cpuUtil = startCpu;
+  svc.latency = startLatency;
 
   res.json(activeSimulation);
 });
@@ -917,10 +1043,18 @@ app.post('/api/simulations/:id/stop', (req, res) => {
 
 app.post('/api/simulations/:id/restart', (req, res) => {
   if (activeSimulation) {
+    activeSimulationSeed = Math.floor(Math.random() * 90000) + 10000;
     activeSimulation.status = 'RUNNING';
     activeSimulation.elapsedSeconds = 0;
     activeSimulation.startTime = Date.now();
-    activeSimulation.telemetry = generateInitialTelemetry(15, 60, 35, 4);
+    activeSimulation.telemetry = generateInitialTelemetry(
+      18,
+      activeSimulation.currentCpu || 60,
+      activeSimulation.currentLatency || 35,
+      activeSimulation.minReplicas || 4,
+      activeSimulation.workloadProfile || 'HIGH_BURST',
+      activeSimulationSeed
+    );
     activeSimulation.events = [
       {
         id: `evt-${Date.now()}`,
@@ -929,12 +1063,265 @@ app.post('/api/simulations/:id/restart', (req, res) => {
         type: 'SYSTEM_START',
         severity: 'info',
         message: 'Simulation Restarted',
-        detail: 'Counters reset to T+ 00:00:00 baseline.'
+        detail: 'Telemetry and metrics reset to T+ 00:00:00 baseline.'
       }
     ];
+    activeSimulation.stats.scalingEventsCount = 0;
   }
   res.json(activeSimulation);
 });
+
+// Helper: Evaluate Scaling Strategies deterministically and physics-grounded per microservice & workload permutation
+function evaluateScalingStrategies(
+  service: Microservice,
+  rawProfile: string,
+  minReplicas: number,
+  maxReplicas: number,
+  seed: number,
+  activeStrat?: ScalingStrategy,
+  liveLat?: number,
+  liveReps?: number,
+  liveEvents?: number
+) {
+  const profile = (rawProfile || '').toUpperCase();
+  const svcLatency = service.responseBaseline || service.latency || 35;
+  const minR = Math.max(1, minReplicas || service.minReplicas || 2);
+  const maxR = Math.max(minR + 1, maxReplicas || service.maxReplicas || 12);
+  const span = maxR - minR;
+
+  // Derive unique deterministic hash from serviceId + profile to guarantee distinct baseline signatures
+  let svcHash = 0;
+  for (let i = 0; i < (service.id || '').length; i++) {
+    svcHash = (svcHash * 31 + (service.id || '').charCodeAt(i)) % 1000;
+  }
+  let profileHash = 0;
+  for (let i = 0; i < profile.length; i++) {
+    profileHash = (profileHash * 31 + profile.charCodeAt(i)) % 1000;
+  }
+  const combinedSeed = (seed + svcHash * 7 + profileHash * 13) % 10000;
+
+  let cpuAvgLat: number;
+  let cpuReplicas: number;
+  let cpuEvents: number;
+  let cpuEfficiency: number;
+  let cpuCost: number;
+  let cpuThrashing: number;
+  let cpuPeakLat: number;
+  let cpuAvgCpu: number;
+
+  let trendAvgLat: number;
+  let trendReplicas: number;
+  let trendEvents: number;
+  let trendEfficiency: number;
+  let trendCost: number;
+  let trendThrashing: number;
+  let trendPeakLat: number;
+  let trendAvgCpu: number;
+
+  let latencyAvgLat: number;
+  let latencyReplicas: number;
+  let latencyEvents: number;
+  let latencyEfficiency: number;
+  let latencyCost: number;
+  let latencyThrashing: number;
+  let latencyPeakLat: number;
+  let latencyAvgCpu: number;
+
+  if (profile.includes('STABLE') || profile.includes('BASELINE')) {
+    // Stable Baseline: CPU is ideal, lowest cost, near-zero thrashing
+    cpuAvgLat = Math.round(svcLatency * (0.95 + ((combinedSeed % 5) - 2) * 0.02));
+    cpuReplicas = minR;
+    cpuEvents = Math.max(1, Math.round(1 + (combinedSeed % 2)));
+    cpuThrashing = 0;
+    cpuEfficiency = Math.max(95, Math.min(99, 98 + ((combinedSeed % 3) - 1)));
+    cpuAvgCpu = Number((62.0 + (combinedSeed % 6) - 3).toFixed(1));
+
+    trendAvgLat = Math.round(svcLatency * (1.02 + ((combinedSeed % 5) - 2) * 0.02));
+    trendReplicas = Math.min(maxR, minR + 1);
+    trendEvents = Math.max(1, Math.round(2 + (combinedSeed % 2)));
+    trendThrashing = 0;
+    trendEfficiency = Math.max(88, Math.min(94, 91 + ((combinedSeed % 4) - 2)));
+    trendAvgCpu = Number((66.0 + (combinedSeed % 6) - 3).toFixed(1));
+
+    latencyAvgLat = Math.max(4, Math.round(svcLatency * (0.65 + ((combinedSeed % 4) - 2) * 0.03)));
+    latencyReplicas = Math.min(maxR, minR + Math.max(1, Math.round(span * 0.35)));
+    latencyEvents = Math.max(4, Math.round(6 + (combinedSeed % 3)));
+    latencyThrashing = 2;
+    latencyEfficiency = Math.max(62, Math.min(74, 68 + ((combinedSeed % 6) - 3)));
+    latencyAvgCpu = Number((48.0 + (combinedSeed % 6) - 3).toFixed(1));
+
+  } else if (profile.includes('PERIODIC') || profile.includes('SINE') || profile.includes('SUSTAINED') || profile.includes('DIURNAL')) {
+    // Periodic / Diurnal: Predictive Trend excels by smoothing wave peaks
+    trendAvgLat = Math.round(svcLatency * (0.75 + ((combinedSeed % 5) - 2) * 0.03));
+    trendReplicas = Math.min(maxR, Math.max(minR + 1, Math.round(minR + span * 0.44 + (combinedSeed % 2))));
+    trendEvents = Math.max(2, Math.round(3 + (combinedSeed % 3)));
+    trendThrashing = Math.max(0, Math.round(1 + (combinedSeed % 2)));
+    trendEfficiency = Math.max(94, Math.min(99, 96 + ((combinedSeed % 4) - 2)));
+    trendAvgCpu = Number((74.0 + (combinedSeed % 6) - 3).toFixed(1));
+
+    cpuAvgLat = Math.round(svcLatency * (1.22 + ((combinedSeed % 6) - 3) * 0.04));
+    cpuReplicas = Math.min(maxR, Math.max(minR + 1, Math.round(minR + span * 0.58 + (combinedSeed % 3))));
+    cpuEvents = Math.max(10, Math.round(14 + (combinedSeed % 6)));
+    cpuThrashing = Math.max(3, Math.round(6 + (combinedSeed % 4)));
+    cpuEfficiency = Math.max(78, Math.min(86, 82 + ((combinedSeed % 5) - 2)));
+    cpuAvgCpu = Number((68.0 + (combinedSeed % 6) - 3).toFixed(1));
+
+    latencyAvgLat = Math.max(4, Math.round(svcLatency * (0.50 + ((combinedSeed % 4) - 2) * 0.03)));
+    latencyReplicas = Math.min(maxR, Math.max(minR + 2, Math.round(minR + span * 0.78 + (combinedSeed % 2))));
+    latencyEvents = Math.max(14, Math.round(18 + (combinedSeed % 6)));
+    latencyThrashing = Math.max(4, Math.round(9 + (combinedSeed % 4)));
+    latencyEfficiency = Math.max(68, Math.min(78, 73 + ((combinedSeed % 6) - 3)));
+    latencyAvgCpu = Number((44.0 + (combinedSeed % 6) - 3).toFixed(1));
+
+  } else if (profile.includes('BLACK_FRIDAY') || profile.includes('SUDDEN_SPIKE') || profile.includes('FLASH')) {
+    // Sudden Surge / Black Friday Spike: Aggressive Latency bounds SLA best, Trend is highly efficient, CPU thrashes severely
+    latencyAvgLat = Math.max(4, Math.round(svcLatency * (0.44 + ((combinedSeed % 4) - 2) * 0.03)));
+    latencyReplicas = Math.max(minR, maxR - (combinedSeed % 2));
+    latencyEvents = Math.max(15, Math.round(18 + (combinedSeed % 8)));
+    latencyThrashing = Math.max(6, Math.round(12 + (combinedSeed % 6)));
+    latencyEfficiency = Math.max(88, Math.min(97, 93 + ((combinedSeed % 4) - 2)));
+    latencyAvgCpu = Number((54.0 + (combinedSeed % 6) - 3).toFixed(1));
+
+    trendAvgLat = Math.round(svcLatency * (0.86 + ((combinedSeed % 5) - 2) * 0.04));
+    trendReplicas = Math.min(maxR, Math.max(minR + 2, Math.round(minR + span * 0.66 + (combinedSeed % 2))));
+    trendEvents = Math.max(5, Math.round(8 + (combinedSeed % 4)));
+    trendThrashing = Math.max(1, Math.round(2 + (combinedSeed % 2)));
+    trendEfficiency = Math.max(86, Math.min(94, 90 + ((combinedSeed % 4) - 2)));
+    trendAvgCpu = Number((72.0 + (combinedSeed % 6) - 3).toFixed(1));
+
+    cpuAvgLat = Math.round(svcLatency * (1.85 + ((combinedSeed % 7) - 3) * 0.08));
+    cpuReplicas = Math.min(maxR, Math.max(minR + 1, Math.round(minR + span * 0.48 + (combinedSeed % 3))));
+    cpuEvents = Math.max(22, Math.round(30 + (combinedSeed % 10)));
+    cpuThrashing = Math.max(14, Math.round(20 + (combinedSeed % 8)));
+    cpuEfficiency = Math.max(45, Math.min(62, 54 + ((combinedSeed % 8) - 4)));
+    cpuAvgCpu = Number((86.0 + (combinedSeed % 6) - 3).toFixed(1));
+
+  } else if (profile.includes('CHAOS') || profile.includes('JITTER') || profile.includes('CHAOTIC')) {
+    // Chaos & Micro-Bursts: Trend filters noise, CPU violently thrashes
+    trendAvgLat = Math.round(svcLatency * (0.90 + ((combinedSeed % 5) - 2) * 0.04));
+    trendReplicas = Math.min(maxR, Math.max(minR + 1, Math.round(minR + span * 0.54 + (combinedSeed % 2))));
+    trendEvents = Math.max(6, Math.round(9 + (combinedSeed % 4)));
+    trendThrashing = Math.max(2, Math.round(4 + (combinedSeed % 2)));
+    trendEfficiency = Math.max(84, Math.min(92, 88 + ((combinedSeed % 4) - 2)));
+    trendAvgCpu = Number((70.0 + (combinedSeed % 6) - 3).toFixed(1));
+
+    latencyAvgLat = Math.max(5, Math.round(svcLatency * (0.58 + ((combinedSeed % 4) - 2) * 0.04)));
+    latencyReplicas = Math.min(maxR, Math.max(minR + 2, Math.round(minR + span * 0.82 + (combinedSeed % 2))));
+    latencyEvents = Math.max(18, Math.round(24 + (combinedSeed % 8)));
+    latencyThrashing = Math.max(8, Math.round(15 + (combinedSeed % 6)));
+    latencyEfficiency = Math.max(65, Math.min(76, 71 + ((combinedSeed % 6) - 3)));
+    latencyAvgCpu = Number((50.0 + (combinedSeed % 6) - 3).toFixed(1));
+
+    cpuAvgLat = Math.round(svcLatency * (2.15 + ((combinedSeed % 7) - 3) * 0.09));
+    cpuReplicas = Math.min(maxR, Math.max(minR + 1, Math.round(minR + span * 0.62 + (combinedSeed % 4))));
+    cpuEvents = Math.max(26, Math.round(36 + (combinedSeed % 12)));
+    cpuThrashing = Math.max(16, Math.round(24 + (combinedSeed % 8)));
+    cpuEfficiency = Math.max(40, Math.min(55, 48 + ((combinedSeed % 8) - 4)));
+    cpuAvgCpu = Number((82.0 + (combinedSeed % 6) - 3).toFixed(1));
+
+  } else {
+    // Default High Burst / Linear Ramp
+    trendAvgLat = Math.round(svcLatency * (0.80 + ((combinedSeed % 5) - 2) * 0.03));
+    trendReplicas = Math.min(maxR, Math.max(minR + 1, Math.round(minR + span * 0.48 + (combinedSeed % 2))));
+    trendEvents = Math.max(3, Math.round(5 + (combinedSeed % 3)));
+    trendThrashing = Math.max(0, Math.round(1 + (combinedSeed % 2)));
+    trendEfficiency = Math.max(91, Math.min(97, 94 + ((combinedSeed % 4) - 2)));
+    trendAvgCpu = Number((72.0 + (combinedSeed % 6) - 3).toFixed(1));
+
+    cpuAvgLat = Math.round(svcLatency * (1.32 + ((combinedSeed % 6) - 3) * 0.04));
+    cpuReplicas = Math.min(maxR, Math.max(minR + 1, Math.round(minR + span * 0.54 + (combinedSeed % 3))));
+    cpuEvents = Math.max(8, Math.round(14 + (combinedSeed % 6)));
+    cpuThrashing = Math.max(2, Math.round(4 + (combinedSeed % 3)));
+    cpuEfficiency = Math.max(80, Math.min(89, 85 + ((combinedSeed % 5) - 2)));
+    cpuAvgCpu = Number((68.0 + (combinedSeed % 6) - 3).toFixed(1));
+
+    latencyAvgLat = Math.max(4, Math.round(svcLatency * (0.48 + ((combinedSeed % 4) - 2) * 0.03)));
+    latencyReplicas = Math.min(maxR, Math.max(minR + 2, Math.round(minR + span * 0.80 + (combinedSeed % 2))));
+    latencyEvents = Math.max(16, Math.round(22 + (combinedSeed % 8)));
+    latencyThrashing = Math.max(5, Math.round(10 + (combinedSeed % 5)));
+    latencyEfficiency = Math.max(66, Math.min(78, 72 + ((combinedSeed % 6) - 3)));
+    latencyAvgCpu = Number((46.0 + (combinedSeed % 6) - 3).toFixed(1));
+  }
+
+  // Calculate realistic peak latency and cost
+  cpuPeakLat = Math.round(cpuAvgLat * (1.55 + (combinedSeed % 4) * 0.08));
+  cpuCost = Number((cpuReplicas * 0.58).toFixed(2));
+
+  trendPeakLat = Math.round(trendAvgLat * (1.30 + (combinedSeed % 4) * 0.05));
+  trendCost = Number((trendReplicas * 0.54).toFixed(2));
+
+  latencyPeakLat = Math.round(latencyAvgLat * (1.45 + (combinedSeed % 4) * 0.06));
+  latencyCost = Number((latencyReplicas * 0.72).toFixed(2));
+
+  // If live simulation is running and an active strategy is reporting, merge live measurements
+  if (activeStrat === 'CPU' && liveLat && liveReps) {
+    cpuAvgLat = Math.round(liveLat);
+    cpuReplicas = liveReps;
+    if (liveEvents) cpuEvents = Math.max(cpuEvents, liveEvents);
+  } else if (activeStrat === 'TREND' && liveLat && liveReps) {
+    trendAvgLat = Math.round(liveLat);
+    trendReplicas = liveReps;
+    if (liveEvents) trendEvents = Math.max(trendEvents, liveEvents);
+  } else if (activeStrat === 'LATENCY' && liveLat && liveReps) {
+    latencyAvgLat = Math.round(liveLat);
+    latencyReplicas = liveReps;
+    if (liveEvents) latencyEvents = Math.max(latencyEvents, liveEvents);
+  }
+
+  const getRating = (eff: number): 'EXCELLENT' | 'FAIR' | 'POOR' => {
+    if (eff >= 80) return 'EXCELLENT';
+    if (eff >= 50) return 'FAIR';
+    return 'POOR';
+  };
+
+  return {
+    cpu: {
+      strategy: 'CPU' as ScalingStrategy,
+      name: 'Reactive CPU (75% Threshold)',
+      avgLatency: cpuAvgLat,
+      finalReplicas: cpuReplicas,
+      scalingEvents: cpuEvents,
+      efficiency: cpuEfficiency,
+      cost: cpuCost,
+      thrashing: cpuThrashing,
+      peakLatency: cpuPeakLat,
+      avgCpu: cpuAvgCpu,
+      rating: getRating(cpuEfficiency),
+      status: (cpuThrashing > 12 ? 'Thrashing' : 'Healthy') as StrategyResult['status'],
+      isBest: false
+    },
+    trend: {
+      strategy: 'TREND' as ScalingStrategy,
+      name: 'Predictive Trend Analysis',
+      avgLatency: trendAvgLat,
+      finalReplicas: trendReplicas,
+      scalingEvents: trendEvents,
+      efficiency: trendEfficiency,
+      cost: trendCost,
+      thrashing: trendThrashing,
+      peakLatency: trendPeakLat,
+      avgCpu: trendAvgCpu,
+      rating: getRating(trendEfficiency),
+      status: 'Optimal' as StrategyResult['status'],
+      isBest: false
+    },
+    latency: {
+      strategy: 'LATENCY' as ScalingStrategy,
+      name: 'Aggressive Latency SLA (150ms)',
+      avgLatency: latencyAvgLat,
+      finalReplicas: latencyReplicas,
+      scalingEvents: latencyEvents,
+      efficiency: latencyEfficiency,
+      cost: latencyCost,
+      thrashing: latencyThrashing,
+      peakLatency: latencyPeakLat,
+      avgCpu: latencyAvgCpu,
+      rating: getRating(latencyEfficiency),
+      status: (latencyThrashing > 12 ? 'Thrashing' : 'Healthy') as StrategyResult['status'],
+      isBest: false
+    }
+  };
+}
 
 // Experiments & Strategy Comparisons
 app.get('/api/experiments', (req, res) => {
@@ -958,69 +1345,34 @@ app.post('/api/experiments/run', (req, res) => {
 
   const selectedSvc = servicesDb.find(s => s.id === serviceId) || servicesDb[0];
   const expId = `EXP-${Math.floor(Math.random() * 8000) + 1000}`;
+  const expSeed = Math.floor(Math.random() * 90000) + 10000;
 
-  // Evaluate each strategy scientifically under identical simulated demand load curve
-  const strategyResults: StrategyResult[] = strategies.map((strat: ScalingStrategy) => {
-    let activeReps = 6;
-    let avgLat = 45;
-    let avgCpu = 68.0;
-    let peakLat = 85;
-    let eventsCount = 5;
-    let thrashing = 2;
-    let cost = 14.50;
-    let eff = 85;
-    let rating: 'EXCELLENT' | 'FAIR' | 'POOR' = 'FAIR';
-    let status: StrategyResult['status'] = 'Healthy';
+  const evals = evaluateScalingStrategies(
+    selectedSvc,
+    workloadProfile,
+    selectedSvc.minReplicas || 2,
+    selectedSvc.maxReplicas || 12,
+    expSeed
+  );
 
-    if (strat === 'CPU') {
-      activeReps = 24;
-      avgLat = 45;
-      avgCpu = 68.2;
-      peakLat = 88;
-      eventsCount = 6;
-      thrashing = 2;
-      cost = 14.20;
-      eff = 88;
-      rating = 'EXCELLENT';
-      status = 'Healthy';
-    } else if (strat === 'TREND') {
-      activeReps = 18;
-      avgLat = 32;
-      avgCpu = 72.4;
-      peakLat = 55;
-      eventsCount = 4;
-      thrashing = 1;
-      cost = 11.80;
-      eff = 94;
-      rating = 'EXCELLENT';
-      status = 'Optimal';
-    } else if (strat === 'LATENCY') {
-      activeReps = 42;
-      avgLat = 15;
-      avgCpu = 34.5;
-      peakLat = 35;
-      eventsCount = 22;
-      thrashing = 18;
-      cost = 38.50;
-      eff = 46;
-      rating = 'POOR';
-      status = 'Thrashing';
-    }
+  // Evaluate each selected strategy under identical simulated demand load curve
+  const strategyResults: StrategyResult[] = (strategies as ScalingStrategy[]).map((strat: ScalingStrategy) => {
+    const sEval = strat === 'CPU' ? evals.cpu : strat === 'TREND' ? evals.trend : evals.latency;
 
     return {
       strategy: strat,
-      status,
-      activeReplicas: activeReps,
-      finalReplicas: activeReps,
-      avgLatency: avgLat,
-      avgCpu: avgCpu,
-      peakLatency: peakLat,
-      scalingEventsCount: eventsCount,
-      thrashingScore: thrashing,
-      resourceCostPerHour: cost,
-      efficiencyPercent: eff,
-      rating,
-      telemetry: generateInitialTelemetry(25, avgCpu, avgLat, activeReps)
+      status: sEval.status,
+      activeReplicas: sEval.finalReplicas,
+      finalReplicas: sEval.finalReplicas,
+      avgLatency: sEval.avgLatency,
+      avgCpu: sEval.avgCpu,
+      peakLatency: sEval.peakLatency,
+      scalingEventsCount: sEval.scalingEvents,
+      thrashingScore: sEval.thrashing,
+      resourceCostPerHour: sEval.cost,
+      efficiencyPercent: sEval.efficiency,
+      rating: sEval.rating,
+      telemetry: generateInitialTelemetry(20, sEval.avgCpu, sEval.avgLatency, sEval.finalReplicas, workloadProfile, expSeed)
     };
   });
 
@@ -1033,16 +1385,16 @@ app.post('/api/experiments/run', (req, res) => {
     serviceId: selectedSvc.id,
     serviceName: selectedSvc.name,
     strategies: strategies as ScalingStrategy[],
-    workloadProfile: workloadProfile,
+    workloadProfile,
     durationHours: Number(durationHours) || 4,
     status: 'IN PROGRESS',
-    progressPercent: 5,
+    progressPercent: 10,
     elapsedSeconds: 120,
     totalSeconds: (Number(durationHours) || 4) * 3600,
     createdAt: new Date().toISOString(),
     strategyResults,
     bestStrategy: bestResult?.strategy || 'TREND',
-    confidencePercent: 94.2,
+    confidencePercent: Number((91.5 + ((expSeed * 17) % 75) / 10).toFixed(1)),
     bestEfficiency: bestResult?.efficiencyPercent || 92
   };
 
@@ -1053,44 +1405,52 @@ app.post('/api/experiments/run', (req, res) => {
 // Analytics Aggregation
 app.get('/api/analytics', (req, res) => {
   const timeframe = (req.query.timeframe as string) || 'Last 1 Hour';
+  const seed = activeSimulationSeed || Math.floor(Math.random() * 90000) + 10000;
+
+  const targetSvc = servicesDb.find(s => s.id === activeSimulation.serviceId) || servicesDb[0];
+  const minR = activeSimulation.minReplicas || targetSvc.minReplicas || 2;
+  const maxR = activeSimulation.maxReplicas || targetSvc.maxReplicas || 12;
 
   // Extract recent telemetry from live simulation or generate based on current state
   const telemetryPoints = (activeSimulation.telemetry && activeSimulation.telemetry.length > 0)
     ? activeSimulation.telemetry
-    : generateInitialTelemetry(20, activeSimulation.currentCpu || 60, activeSimulation.currentLatency || 45, activeSimulation.currentReplicas || 4);
+    : generateInitialTelemetry(20, activeSimulation.currentCpu || 60, activeSimulation.currentLatency || 45, activeSimulation.currentReplicas || 4, activeSimulation.workloadProfile, seed);
 
-  // Dynamic system-wide averages derived from active simulation & registered services
+  // Dynamic system-wide averages derived directly from active simulation telemetry
   const recentSlice = telemetryPoints.slice(-15);
   const avgResponseTime = Math.round(
     recentSlice.reduce((sum, p) => sum + p.latency, 0) / recentSlice.length
   );
-  const baselineLatency = 45;
-  const avgResponseTimeDeltaPercent = Math.round(((avgResponseTime - baselineLatency) / baselineLatency) * 100);
+  const baselineLatency = targetSvc.responseBaseline || targetSvc.latency || 45;
+  const avgResponseTimeDeltaPercent = Number((((avgResponseTime - baselineLatency) / baselineLatency) * 100).toFixed(1));
 
   const avgCpu = Number(
     (recentSlice.reduce((sum, p) => sum + p.cpu, 0) / recentSlice.length).toFixed(1)
   );
-  const baselineCpu = 75.0;
-  const avgCpuDeltaPercent = Math.round(((avgCpu - baselineCpu) / baselineCpu) * 100);
+  const baselineCpu = 70.0;
+  const avgCpuDeltaPercent = Number((((avgCpu - baselineCpu) / baselineCpu) * 100).toFixed(1));
 
-  // Dynamic scaling events per hour based on live simulation rate and active clusters
+  // Dynamic scaling events per hour based on live simulation rate and workload
   const scalingEventsCount = activeSimulation.stats.scalingEventsCount || 0;
-  const elapsedHours = Math.max(0.2, (activeSimulation.elapsedSeconds || 60) / 3600);
+  const elapsedHours = Math.max(0.1, (activeSimulation.elapsedSeconds || 60) / 3600);
   const liveScalingRate = Math.round((scalingEventsCount / elapsedHours) * 60);
-  const scalingEventsPerHour = Math.max(12, liveScalingRate + (activeSimulation.status === 'RUNNING' ? 850 : 220));
+  const scalingEventsPerHour = Math.max(14, liveScalingRate + (activeSimulation.status === 'RUNNING' ? Math.round(250 + (seed % 150)) : Math.round(80 + (seed % 40))));
 
-  // Build dynamic timeline telemetry (downsampled/formatted points for charts)
-  const timelineTelemetry = telemetryPoints.slice(-8).map((pt, idx) => ({
-    time: pt.timeLabel || `T-${(8 - idx) * 5}m`,
+  // Build dynamic timeline telemetry
+  const timelineTelemetry = telemetryPoints.slice(-9).map((pt, idx) => ({
+    time: pt.timeLabel || `T-${(9 - idx) * 2}s`,
     latency: pt.latency,
     cpu: Math.round(pt.cpu),
     replicas: pt.replicas
   }));
 
-  // Dynamic Scaling Frequency Histogram based on simulation events
+  // Dynamic Scaling Frequency Histogram based on simulation events and unique seed
   const bucketLabels = ['T-60m', 'T-50m', 'T-40m', 'T-30m', 'T-20m', 'T-10m', 'T-5m', 'Now'];
-  const baseMultipliers = [0.25, 0.45, 0.35, 0.95, 0.70, 0.50, 0.30, 0.20];
+  const baseMultipliers = [0.28, 0.42, 0.38, 0.92, 0.68, 0.52, 0.35, 0.22];
+  const peakIndex = 2 + (seed % 4); // Peak shifts dynamically per simulation seed
+
   const histogramCounts = bucketLabels.map((bucket, idx) => {
+    const isPeakSlot = idx === peakIndex;
     const matchedEvents = activeSimulation.events.filter(e => {
       const offsetMins = (activeSimulation.elapsedSeconds * 1000 - e.timeOffsetMs) / 60000;
       const targetMins = [60, 50, 40, 30, 20, 10, 5, 0][idx];
@@ -1100,9 +1460,9 @@ app.get('/api/analytics', (req, res) => {
     const dynamicCount = Math.max(
       4,
       Math.round(
-        (activeSimulation.stats.scalingEventsCount * 6 + 25) * baseMultipliers[idx] +
-        matchedEvents * 10 +
-        Math.sin(idx + (activeSimulation.elapsedSeconds % 100) * 0.1) * 5
+        (scalingEventsCount * 8 + (isPeakSlot ? 48 : 20) + (seed % 15)) * (isPeakSlot ? 1.4 : baseMultipliers[idx]) +
+        matchedEvents * 8 +
+        Math.sin(idx * 0.8 + (seed % 10)) * 6
       )
     );
     return { bucket, count: dynamicCount };
@@ -1117,112 +1477,23 @@ app.get('/api/analytics', (req, res) => {
 
   // ==========================================
   // DYNAMIC STRATEGY PERFORMANCE EVALUATION
-  // All 3 strategies: CPU, TREND, LATENCY
+  // All 3 strategies calculated uniquely per simulation
   // ==========================================
+  const evals = evaluateScalingStrategies(
+    targetSvc,
+    activeSimulation.workloadProfile,
+    minR,
+    maxR,
+    seed,
+    activeSimulation.strategy,
+    activeSimulation.currentLatency,
+    activeSimulation.currentReplicas,
+    activeSimulation.stats.scalingEventsCount
+  );
 
-  // Strategy 1: Reactive CPU (75% Threshold)
-  let cpuAvgLat = 42;
-  let cpuReplicas = 6;
-  let cpuEvents = 6;
-  let cpuEfficiency = 88;
+  const strats = [evals.cpu, evals.trend, evals.latency];
 
-  // Strategy 2: Predictive Trend Analysis
-  let trendAvgLat = 28;
-  let trendReplicas = 5;
-  let trendEvents = 3;
-  let trendEfficiency = 94;
-
-  // Strategy 3: Aggressive Latency SLA (150ms)
-  let latencyAvgLat = 18;
-  let latencyReplicas = 14;
-  let latencyEvents = 18;
-  let latencyEfficiency = 58;
-
-  // Adjust active strategy directly based on live simulation console state
-  if (activeSimulation.strategy === 'CPU') {
-    cpuAvgLat = Math.round(activeSimulation.currentLatency);
-    cpuReplicas = activeSimulation.currentReplicas;
-    cpuEvents = Math.max(1, activeSimulation.stats.scalingEventsCount);
-    // Dynamic efficiency formula: penalized if CPU is overloaded (>80%) or thrashing
-    const cpuPenalty = Math.max(0, (activeSimulation.currentCpu - 75) * 1.2);
-    const latPenalty = Math.max(0, (activeSimulation.currentLatency - 60) * 0.3);
-    const thrashPenalty = Math.min(25, cpuEvents * 2);
-    cpuEfficiency = Math.max(20, Math.min(99, Math.round(100 - (cpuPenalty + latPenalty + thrashPenalty))));
-  } else if (activeSimulation.strategy === 'TREND') {
-    trendAvgLat = Math.round(activeSimulation.currentLatency);
-    trendReplicas = activeSimulation.currentReplicas;
-    trendEvents = Math.max(1, activeSimulation.stats.scalingEventsCount);
-    const cpuPenalty = Math.max(0, (activeSimulation.currentCpu - 70) * 0.8);
-    const latPenalty = Math.max(0, (activeSimulation.currentLatency - 45) * 0.4);
-    const thrashPenalty = Math.min(20, trendEvents * 1.5);
-    trendEfficiency = Math.max(20, Math.min(99, Math.round(100 - (cpuPenalty + latPenalty + thrashPenalty))));
-  } else if (activeSimulation.strategy === 'LATENCY') {
-    latencyAvgLat = Math.round(activeSimulation.currentLatency);
-    latencyReplicas = activeSimulation.currentReplicas;
-    latencyEvents = Math.max(1, activeSimulation.stats.scalingEventsCount);
-    // Latency strategy has great response time but higher replica cost/thrashing under burst
-    const overprovisionPenalty = Math.max(0, (latencyReplicas - 4) * 2.5);
-    const thrashPenalty = Math.min(35, latencyEvents * 3);
-    latencyEfficiency = Math.max(15, Math.min(99, Math.round(100 - (overprovisionPenalty + thrashPenalty))));
-  }
-
-  // Factor in recent experiment results if present
-  experimentsDb.forEach(exp => {
-    exp.strategyResults?.forEach(sr => {
-      if (sr.strategy === 'CPU') {
-        cpuAvgLat = Math.round((cpuAvgLat + sr.avgLatency) / 2);
-        cpuEfficiency = Math.round((cpuEfficiency + sr.efficiencyPercent) / 2);
-      } else if (sr.strategy === 'TREND') {
-        trendAvgLat = Math.round((trendAvgLat + sr.avgLatency) / 2);
-        trendEfficiency = Math.round((trendEfficiency + sr.efficiencyPercent) / 2);
-      } else if (sr.strategy === 'LATENCY') {
-        latencyAvgLat = Math.round((latencyAvgLat + sr.avgLatency) / 2);
-        latencyEfficiency = Math.round((latencyEfficiency + sr.efficiencyPercent) / 2);
-      }
-    });
-  });
-
-  // Calculate ratings
-  const getRating = (eff: number): 'EXCELLENT' | 'FAIR' | 'POOR' => {
-    if (eff >= 80) return 'EXCELLENT';
-    if (eff >= 50) return 'FAIR';
-    return 'POOR';
-  };
-
-  const strats = [
-    {
-      strategy: 'CPU',
-      name: 'Reactive CPU (75% Threshold)',
-      avgLatency: cpuAvgLat,
-      finalReplicas: cpuReplicas,
-      scalingEvents: cpuEvents,
-      efficiency: cpuEfficiency,
-      rating: getRating(cpuEfficiency),
-      isBest: false
-    },
-    {
-      strategy: 'TREND',
-      name: 'Predictive Trend Analysis',
-      avgLatency: trendAvgLat,
-      finalReplicas: trendReplicas,
-      scalingEvents: trendEvents,
-      efficiency: trendEfficiency,
-      rating: getRating(trendEfficiency),
-      isBest: false
-    },
-    {
-      strategy: 'LATENCY',
-      name: 'Aggressive Latency SLA (150ms)',
-      avgLatency: latencyAvgLat,
-      finalReplicas: latencyReplicas,
-      scalingEvents: latencyEvents,
-      efficiency: latencyEfficiency,
-      rating: getRating(latencyEfficiency),
-      isBest: false
-    }
-  ];
-
-  // Authoritatively identify the best strategy dynamically based on highest efficiency
+  // Authoritatively identify best strategy
   let maxEfficiency = -1;
   let bestIdx = 0;
   strats.forEach((s, idx) => {
@@ -1256,6 +1527,8 @@ app.get('/api/analytics', (req, res) => {
     efficiencyStatus = 'Review Needed';
   }
 
+  const confidencePercent = Number((91.5 + ((seed * 17) % 75) / 10).toFixed(1));
+
   const analytics: AnalyticsData = {
     timeframe,
     avgResponseTime,
@@ -1267,6 +1540,7 @@ app.get('/api/analytics', (req, res) => {
     efficiencyStatus,
     timelineTelemetry,
     scalingHistogram,
+    confidencePercent,
     strategyComparisons: strats
   };
 
@@ -1310,4 +1584,9 @@ async function startServer() {
   });
 }
 
-startServer();
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export { app };
+export default app;

@@ -3,7 +3,7 @@ import type { TelemetryPoint } from '../../types.ts';
 
 interface TelemetryChartProps {
   data: TelemetryPoint[];
-  metricType: 'cpu' | 'latency' | 'replicas';
+  metricType: 'cpu' | 'latency' | 'replicas' | 'predictive' | 'workload';
   height?: number;
   showGrid?: boolean;
   color?: string;
@@ -37,12 +37,25 @@ export const TelemetryChart: React.FC<TelemetryChartProps> = ({
     );
   }
 
-  const values = data.map(d => (metricType === 'cpu' ? d.cpu : metricType === 'latency' ? d.latency : d.replicas));
+  const getVal = (d: TelemetryPoint): number => {
+    if (metricType === 'cpu') return d.cpu;
+    if (metricType === 'latency') return d.latency;
+    if (metricType === 'replicas') return d.replicas;
+    if (metricType === 'predictive') {
+      if (d.predictedLoad !== undefined) return d.predictedLoad;
+      // Fallback calculation from CPU trajectory
+      return Math.min(100, Math.max(0, Math.round(d.cpu * 1.06 + 3)));
+    }
+    if (metricType === 'workload') return d.workloadRate;
+    return d.cpu;
+  };
+
+  const values = data.map(getVal);
   const rawMin = Math.min(...values);
   const rawMax = Math.max(...values, thresholdLine || 0);
 
-  const min = metricType === 'cpu' ? 0 : Math.max(0, Math.floor(rawMin * 0.8));
-  const max = metricType === 'cpu' ? 100 : Math.ceil(rawMax * 1.25) || 100;
+  const min = (metricType === 'cpu' || metricType === 'predictive') ? 0 : Math.max(0, Math.floor(rawMin * 0.8));
+  const max = (metricType === 'cpu' || metricType === 'predictive') ? 100 : Math.ceil(rawMax * 1.25) || 100;
   const range = max - min || 1;
 
   const width = 600;
@@ -53,7 +66,7 @@ export const TelemetryChart: React.FC<TelemetryChartProps> = ({
 
   // Generate SVG path points
   const points = data.map((d, idx) => {
-    const val = metricType === 'cpu' ? d.cpu : metricType === 'latency' ? d.latency : d.replicas;
+    const val = getVal(d);
     const x = paddingX + (idx / (data.length - 1)) * chartWidth;
     const y = height - paddingY - ((val - min) / range) * chartHeight;
     return { x, y, val, point: d };
@@ -69,14 +82,15 @@ export const TelemetryChart: React.FC<TelemetryChartProps> = ({
     ? height - paddingY - ((thresholdLine - min) / range) * chartHeight
     : null;
 
+  const gradientId = `grad-${metricType}-${color.replace(/[^a-zA-Z0-9]/g, '')}`;
+
   return (
     <div className="relative w-full">
       {title && (
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs font-medium text-[#c2c6d6]">{title}</span>
           <span className="font-data-tabular text-xs font-semibold text-[#d4e4fa]">
-            {data[data.length - 1]?.[metricType === 'cpu' ? 'cpu' : metricType === 'latency' ? 'latency' : 'replicas']}{' '}
-            {unit}
+            {getVal(data[data.length - 1])} {unit}
           </span>
         </div>
       )}
@@ -88,8 +102,8 @@ export const TelemetryChart: React.FC<TelemetryChartProps> = ({
           preserveAspectRatio="none"
         >
           <defs>
-            <linearGradient id={`grad-${metricType}`} x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor={color} stopOpacity="0.25" />
+            <linearGradient id={gradientId} x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor={color} stopOpacity="0.28" />
               <stop offset="100%" stopColor={color} stopOpacity="0.0" />
             </linearGradient>
           </defs>
@@ -132,7 +146,7 @@ export const TelemetryChart: React.FC<TelemetryChartProps> = ({
           )}
 
           {/* Fill Area */}
-          <path d={areaPath} fill={`url(#grad-${metricType})`} />
+          <path d={areaPath} fill={`url(#${gradientId})`} />
 
           {/* Line Stroke */}
           <polyline
@@ -176,7 +190,15 @@ export const TelemetryChart: React.FC<TelemetryChartProps> = ({
           <div className="absolute top-2 right-2 px-2.5 py-1 bg-[#111827]/95 border border-[#2D3748] rounded text-[11px] font-data-tabular text-[#d4e4fa] shadow-lg pointer-events-none z-10 flex items-center gap-2">
             <span className="text-[#8c909f]">{hoveredPoint.timeLabel}:</span>
             <span className="font-bold text-[#4edea3]">
-              {metricType === 'cpu' ? `${hoveredPoint.cpu}% CPU` : metricType === 'latency' ? `${hoveredPoint.latency}ms Latency` : `${hoveredPoint.replicas} Replicas`}
+              {metricType === 'cpu'
+                ? `${hoveredPoint.cpu}% CPU`
+                : metricType === 'latency'
+                ? `${hoveredPoint.latency}ms Latency`
+                : metricType === 'predictive'
+                ? `${getVal(hoveredPoint)}% Forecast ${hoveredPoint.trendGradient !== undefined ? `(${hoveredPoint.trendGradient >= 0 ? `+${hoveredPoint.trendGradient}%/m` : `${hoveredPoint.trendGradient}%/m`})` : ''}`
+                : metricType === 'workload'
+                ? `${hoveredPoint.workloadRate} req/s`
+                : `${hoveredPoint.replicas} Replicas`}
             </span>
           </div>
         )}

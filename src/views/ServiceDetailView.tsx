@@ -122,9 +122,13 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
         </div>
 
         <div className="card-level-1 p-4 rounded-xl border border-[#1F2937]">
-          <span className="text-[11px] font-label-caps text-[#8c909f]">Decision Strategy</span>
-          <div className="text-xl font-bold font-mono text-[#4edea3] mt-1">
-            {service.strategy}
+          <span className="text-[11px] font-label-caps text-[#8c909f]">Auto-Scaling Policies</span>
+          <div className="text-sm font-bold font-mono text-[#4edea3] mt-1 flex flex-wrap gap-1">
+            {(service.strategies && service.strategies.length > 0 ? service.strategies : [service.strategy]).map(st => (
+              <span key={st} className="px-1.5 py-0.5 rounded bg-[#070A0F] border border-[#1F2937] text-xs">
+                {st}
+              </span>
+            ))}
           </div>
           <p className="text-[11px] text-[#8c909f] mt-1 font-mono">
             Workload: {service.workloadPattern}
@@ -132,8 +136,9 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
         </div>
       </div>
 
-      {/* Telemetry Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Telemetry Charts (3 Strategies Stacked Vertically) */}
+      <div className="space-y-5">
+        {/* CPU Strategy */}
         <div className="card-level-1 p-5 rounded-xl border border-[#1F2937] space-y-3">
           <div className="flex items-center justify-between pb-2 border-b border-[#1F2937]">
             <div className="flex items-center gap-2">
@@ -145,7 +150,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
           <TelemetryChart
             data={service.telemetry || []}
             metricType="cpu"
-            height={160}
+            height={170}
             color="#4d8eff"
             unit="%"
             thresholdLine={75}
@@ -153,6 +158,27 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
           />
         </div>
 
+        {/* Predictive Trend Strategy */}
+        <div className="card-level-1 p-5 rounded-xl border border-[#1F2937] space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-[#1F2937]">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-[#b69df8]" />
+              <h3 className="text-xs font-semibold text-white">Predictive Forecast & Trend (%)</h3>
+            </div>
+            <span className="text-[11px] font-mono text-[#b69df8]">Horizon: +15s</span>
+          </div>
+          <TelemetryChart
+            data={service.telemetry || []}
+            metricType="predictive"
+            height={170}
+            color="#b69df8"
+            unit="%"
+            thresholdLine={80}
+            thresholdLabel="Pre-Provision Horizon (80%)"
+          />
+        </div>
+
+        {/* Latency Strategy */}
         <div className="card-level-1 p-5 rounded-xl border border-[#1F2937] space-y-3">
           <div className="flex items-center justify-between pb-2 border-b border-[#1F2937]">
             <div className="flex items-center gap-2">
@@ -164,7 +190,7 @@ export const ServiceDetailView: React.FC<ServiceDetailViewProps> = ({
           <TelemetryChart
             data={service.telemetry || []}
             metricType="latency"
-            height={160}
+            height={170}
             color="#4edea3"
             unit="ms"
             thresholdLine={service.responseBaseline}

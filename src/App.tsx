@@ -78,7 +78,8 @@ const AppContent: React.FC = () => {
 
   const handleStartSimulation = async (data: {
     serviceId: string;
-    strategy: ScalingStrategy;
+    strategy?: ScalingStrategy;
+    strategies?: ScalingStrategy[];
     workloadProfile: string;
     minReplicas: number;
     maxReplicas: number;

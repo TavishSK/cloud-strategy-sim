@@ -35,7 +35,7 @@ export const ExperimentsView: React.FC<ExperimentsViewProps> = ({
 
   // Form states for new comparison
   const [selectedServiceId, setSelectedServiceId] = useState(services[0]?.id || 'srv-payment-gw');
-  const [selectedStrategies, setSelectedStrategies] = useState<ScalingStrategy[]>(['CPU', 'LATENCY']);
+  const [selectedStrategies, setSelectedStrategies] = useState<ScalingStrategy[]>(['CPU', 'TREND', 'LATENCY']);
   const [durationHours, setDurationHours] = useState(4);
   const [workloadProfile, setWorkloadProfile] = useState('E-Commerce: Black Friday Spike');
   const [isRunning, setIsRunning] = useState(false);

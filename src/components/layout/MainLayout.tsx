@@ -15,7 +15,8 @@ interface MainLayoutProps {
   activeSimulation: SimulationSession | null;
   onStartSimulation: (data: {
     serviceId: string;
-    strategy: ScalingStrategy;
+    strategy?: ScalingStrategy;
+    strategies?: ScalingStrategy[];
     workloadProfile: string;
     minReplicas: number;
     maxReplicas: number;

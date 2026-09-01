@@ -9,7 +9,8 @@ import {
   Zap,
   CheckCircle2,
   AlertCircle,
-  HelpCircle
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import type { ScalingStrategy, TrafficPattern } from '../types.ts';
 import { useToast } from '../context/ToastContext.tsx';
@@ -32,12 +33,26 @@ export const RegisterServiceView: React.FC<RegisterServiceViewProps> = ({ onBack
   const [maxReplicas, setMaxReplicas] = useState(12);
   const [cpuBaseline, setCpuBaseline] = useState(250);
   const [responseBaseline, setResponseBaseline] = useState(120);
-  const [strategy, setStrategy] = useState<ScalingStrategy>('CPU');
+  // Default: all 3 strategies selected initially
+  const [strategies, setStrategies] = useState<ScalingStrategy[]>(['CPU', 'TREND', 'LATENCY']);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Validation
   const isValidReplicas = minReplicas <= initialReplicas && initialReplicas <= maxReplicas;
+  const isValidStrategies = strategies.length > 0;
+
+  const toggleStrategy = (strat: ScalingStrategy) => {
+    if (strategies.includes(strat)) {
+      setStrategies(prev => prev.filter(s => s !== strat));
+    } else {
+      setStrategies(prev => [...prev, strat]);
+    }
+  };
+
+  const selectAllStrategies = () => {
+    setStrategies(['CPU', 'TREND', 'LATENCY']);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,6 +62,10 @@ export const RegisterServiceView: React.FC<RegisterServiceViewProps> = ({ onBack
     }
     if (!isValidReplicas) {
       setErrorMsg('Constraint error: Minimum Replicas ≤ Initial Replicas ≤ Maximum Replicas.');
+      return;
+    }
+    if (!isValidStrategies) {
+      setErrorMsg('Policy constraint error: Please select at least 1 auto-scaling strategy.');
       return;
     }
 
@@ -63,9 +82,14 @@ export const RegisterServiceView: React.FC<RegisterServiceViewProps> = ({ onBack
         workloadPattern,
         cpuBaseline: Number(cpuBaseline),
         responseBaseline: Number(responseBaseline),
-        strategy
+        strategy: strategies[0],
+        strategies
       });
-      showToast('success', 'Microservice Registered', `${name} successfully provisioned in cluster inventory.`);
+      showToast(
+        'success',
+        'Microservice Registered',
+        `${name} successfully provisioned with ${strategies.length} auto-scaling ${strategies.length === 1 ? 'policy' : 'policies'} (${strategies.join(', ')}).`
+      );
       onSuccess();
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to register service.');
@@ -81,14 +105,14 @@ export const RegisterServiceView: React.FC<RegisterServiceViewProps> = ({ onBack
       <div className="flex items-center gap-3">
         <button
           onClick={onBack}
-          className="p-2 rounded-lg bg-[#0B0F17] hover:bg-[#111827] text-[#8c909f] hover:text-white border border-[#1F2937] transition-colors"
+          className="p-2 rounded-lg bg-[#0B0F17] hover:bg-[#111827] text-[#8c909f] hover:text-white border border-[#1F2937] transition-colors cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
         </button>
         <div>
           <h2 className="text-xl font-bold text-white tracking-tight font-display">Register Microservice</h2>
           <p className="text-xs text-[#8c909f]">
-            Define pod specifications, load behavior, and auto-scaling rules
+            Define pod specifications, load behavior, and auto-scaling decision policies
           </p>
         </div>
       </div>
@@ -129,7 +153,7 @@ export const RegisterServiceView: React.FC<RegisterServiceViewProps> = ({ onBack
               <select
                 value={type}
                 onChange={e => setType(e.target.value)}
-                className="w-full px-3 py-2 bg-[#070A0F] border border-[#1F2937] rounded-lg text-sm text-[#d4e4fa] focus:border-[#4d8eff] focus:outline-none"
+                className="w-full px-3 py-2 bg-[#070A0F] border border-[#1F2937] rounded-lg text-sm text-[#d4e4fa] focus:border-[#4d8eff] focus:outline-none cursor-pointer"
               >
                 <option value="Payment Processing">Payment Processing</option>
                 <option value="Order Management">Order Management</option>
@@ -272,12 +296,34 @@ export const RegisterServiceView: React.FC<RegisterServiceViewProps> = ({ onBack
           </div>
         </div>
 
-        {/* Section 4: Performance Baselines & Strategy */}
+        {/* Section 4: Performance Baselines & Multi-Strategy Selection */}
         <div>
-          <h3 className="text-sm font-semibold text-white mb-4 pb-2 border-b border-[#1F2937] flex items-center gap-2">
-            <Clock className="w-4 h-4 text-[#adc6ff]" />
-            <span>4. Auto-Scaling Decision Strategy</span>
-          </h3>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-2 border-b border-[#1F2937]">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-[#adc6ff]" />
+              <span className="text-sm font-semibold text-white">4. Auto-Scaling Decision Policies</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span
+                className={`text-[11px] font-mono px-2 py-0.5 rounded border transition-colors ${
+                  strategies.length > 0
+                    ? 'bg-[#111827] border-[#4d8eff]/40 text-[#adc6ff]'
+                    : 'bg-[#ffb4ab]/10 border-[#ffb4ab]/40 text-[#ffb4ab] font-bold'
+                }`}
+              >
+                {strategies.length} of 3 Selected
+              </span>
+              {strategies.length < 3 && (
+                <button
+                  type="button"
+                  onClick={selectAllStrategies}
+                  className="text-[11px] text-[#4d8eff] hover:underline cursor-pointer font-medium"
+                >
+                  Select All
+                </button>
+              )}
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
             <div>
@@ -309,49 +355,83 @@ export const RegisterServiceView: React.FC<RegisterServiceViewProps> = ({ onBack
             </div>
           </div>
 
+          <p className="text-xs text-[#8c909f] mb-3">
+            Select 1 or more auto-scaling policies to apply to this microservice. Click each card to toggle on/off:
+          </p>
+
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {[
               {
-                id: 'CPU',
+                id: 'CPU' as ScalingStrategy,
                 title: 'CPU Target Tracking',
                 sub: 'Kubernetes standard HPA. Scales when CPU utilization breaches 75%.',
                 badge: 'STANDARD'
               },
               {
-                id: 'TREND',
+                id: 'TREND' as ScalingStrategy,
                 title: 'TREND Predictive Model',
                 sub: 'Pre-provisions compute capacity using derivative load rate calculations.',
                 badge: 'RECOMMENDED'
               },
               {
-                id: 'LATENCY',
+                id: 'LATENCY' as ScalingStrategy,
                 title: 'LATENCY SLA Trigger',
                 sub: 'Aggressive burst scaling triggered whenever p95 latency exceeds threshold.',
                 badge: 'CUSTOM'
               }
-            ].map(s => (
-              <div
-                key={s.id}
-                onClick={() => setStrategy(s.id as ScalingStrategy)}
-                className={`p-4 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
-                  strategy === s.id
-                    ? 'bg-[#111827] border-[#4d8eff] shadow-md'
-                    : 'bg-[#070A0F] border-[#1F2937] hover:border-[#424754]'
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#070A0F] border border-[#1F2937] text-[#adc6ff]">
-                      {s.badge}
-                    </span>
-                    {strategy === s.id && <CheckCircle2 className="w-4 h-4 text-[#4d8eff]" />}
+            ].map(s => {
+              const isSelected = strategies.includes(s.id);
+              return (
+                <div
+                  key={s.id}
+                  onClick={() => toggleStrategy(s.id)}
+                  className={`p-4 rounded-xl border cursor-pointer transition-all flex flex-col justify-between select-none ${
+                    isSelected
+                      ? 'bg-[#111827] border-[#4d8eff] shadow-md ring-1 ring-[#4d8eff]/30'
+                      : 'bg-[#070A0F]/60 border-[#1F2937] opacity-60 hover:opacity-90 hover:border-[#424754]'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
+                        isSelected
+                          ? 'bg-[#070A0F] border-[#1F2937] text-[#adc6ff]'
+                          : 'bg-[#070A0F]/50 border-[#1F2937] text-[#8c909f]'
+                      }`}>
+                        {s.badge}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {isSelected ? (
+                          <CheckSquare className="w-4 h-4 text-[#4d8eff]" />
+                        ) : (
+                          <Square className="w-4 h-4 text-[#8c909f]" />
+                        )}
+                      </div>
+                    </div>
+                    <h4 className={`text-xs font-semibold ${isSelected ? 'text-[#d4e4fa]' : 'text-[#8c909f]'}`}>
+                      {s.title}
+                    </h4>
+                    <p className="text-[11px] text-[#8c909f] mt-1 leading-relaxed">{s.sub}</p>
                   </div>
-                  <h4 className="text-xs font-semibold text-[#d4e4fa]">{s.title}</h4>
-                  <p className="text-[11px] text-[#8c909f] mt-1 leading-relaxed">{s.sub}</p>
+                  <div className="mt-3 pt-2 border-t border-[#1F2937]/50 flex items-center justify-between">
+                    <span className={`text-[10px] font-mono ${isSelected ? 'text-[#4edea3]' : 'text-[#8c909f]'}`}>
+                      {isSelected ? '● Active' : '○ Click to Enable'}
+                    </span>
+                    <span className="text-[10px] text-[#8c909f]">
+                      {isSelected ? 'Click to unselect' : 'Click to select'}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
+
+          {strategies.length === 0 && (
+            <div className="mt-3 p-3 bg-[#ffb4ab]/10 border border-[#ffb4ab]/30 rounded-lg flex items-center gap-2 text-xs text-[#ffb4ab]">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>At least 1 scaling strategy must be selected. Click on any of the cards above to select it.</span>
+            </div>
+          )}
         </div>
 
         {/* Action Buttons */}
@@ -359,14 +439,14 @@ export const RegisterServiceView: React.FC<RegisterServiceViewProps> = ({ onBack
           <button
             type="button"
             onClick={onBack}
-            className="px-4 py-2 rounded-lg text-xs font-medium text-[#c2c6d6] hover:bg-[#111827] transition-colors"
+            className="px-4 py-2 rounded-lg text-xs font-medium text-[#c2c6d6] hover:bg-[#111827] transition-colors cursor-pointer"
           >
             Cancel
           </button>
           <button
             type="submit"
-            disabled={isSubmitting || !isValidReplicas}
-            className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-[#4d8eff] hover:bg-[#3b7ced] text-[#00285d] text-xs font-bold transition-all shadow-md cursor-pointer disabled:opacity-50"
+            disabled={isSubmitting || !isValidReplicas || !isValidStrategies}
+            className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-[#4d8eff] hover:bg-[#3b7ced] text-[#00285d] text-xs font-bold transition-all shadow-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Zap className="w-4 h-4 fill-current" />
             <span>{isSubmitting ? 'Registering...' : 'Register Microservice'}</span>
