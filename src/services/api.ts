@@ -18,7 +18,8 @@ async function fetchWithFallback<T>(
 ): Promise<T> {
   try {
     const res = await fetch(url, options);
-    if (!res.ok) {
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || contentType.includes('text/html')) {
       if (fallbackFn) {
         return fallbackFn();
       }
